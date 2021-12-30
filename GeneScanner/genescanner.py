@@ -20,7 +20,8 @@ Features:
 import pandas as pd
 
 input_file = "./test/test_input/input_basic_test.csv"
-peak_gap = 1
+peak_gap = 1 # <= peak_gap will be processed
+method = "pick_larger_peak" # other methods: "keep_separated_peaks" / "combine_peaks"/ "hybrid"
 
 # Load dataframe
 df = pd.read_csv(input_file)
@@ -31,16 +32,34 @@ df = df.sort_values(by=['Sample File Name', 'Size']).\
 
 # Clean sample names by removing leading and trailing white space
 df["Sample File Name"] = df["Sample File Name"].str.rstrip().str.lstrip()
-
-# Process closeby peaks by remove the one with smaller area
-for index, row in df.iterrows():
-    current_size = df.iloc[index+1, "Size"]
-    next_size = df.iloc[index, "Size"]
-    if (next_size - current_size) < peak_gap:
-        ###continue
         
 # Get sample names
 sample_names = list(set(df.loc[:,"Sample File Name"]))
+
+## Find mountain ranges: cluster of peaks within peak_gap along x-axis (size)
+## Store index of peaks
+def advance(index, build_list, df, peak_gap, mountain_ranges):       
+    if index in mountain_ranges:
+        return []
+    if df.loc[index + 1, "Size"] - df.loc[index, "Size"] > peak_gap:
+        return list(set(build_list))
+    else:
+        build_list += [index, index + 1]
+        return advance(index + 1, build_list, df, peak_gap)
+
+mountain_ranges = []
+for i in sample_names:
+    dfSample = df.loc[df.iloc[:,1] == i, :]
+    for index, row in dfSample.iterrows():
+        if index in mountain_ranges:
+            pass
+        else:
+            mountain_ranges += [ [advance(index, [], df, peak_gap)] ]
+        
+# Keep largest peak and remove smaller peak(s)
+for mountains in mountain_range:
+    ## continue
+
 
 # Loop through samples
 data_list = []
