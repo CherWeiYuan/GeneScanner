@@ -27,11 +27,11 @@ from logging import DEBUG
 from logging import error
 from argparse import ArgumentParser
 from argparse import BooleanOptionalAction
-from warnings import simplefilter
 
 import pandas as pd
 from itertools import chain
-from seaborn import catplot
+from seaborn import FacetGrid
+from matplotlib.pyplot import bar
 
 def parse_args():
     """
@@ -359,40 +359,36 @@ def plot(df, file_prefix, subplot_prefix, plot_bool, outdir):
         plot_df.loc[:,"Size"] = plot_df.loc[:,"Size"].astype('category')
         if "Status" in plot_df.columns:
             # Make barplot for data before processing
-            plt = catplot(x="Size", 
-                          y="Area", 
-                          col="Sample File Name", 
-                          col_wrap = 5,
-                          data=plot_df, 
-                          kind="bar", 
-                          ci=None,
-                          sharey=False,
-                          sharex=False,
-                          hue="Status")
-            plt.savefig(f"{outdir}/{subplot_prefix}_{file_prefix}.png")
+            colors = {"Removed": 'r', "Kept": 'g'}
+            grid = FacetGrid(plot_df, 
+                             col='Sample File Name', 
+                             col_wrap=5, 
+                             sharey=False, 
+                             sharex=False)
+            grid.map(bar, 
+                     'Size', 
+                     'Area', 
+                     width = 10, 
+                     color = [colors[i] for i in plot_df['Status']])
+            grid.set_titles('{col_name}')
+
+            grid.savefig(f"{outdir}/{subplot_prefix}_{file_prefix}.png")
         else:
             # Make barplot for data after processing
-            plt = catplot(x="Size", 
-                          y="Area", 
-                          col="Sample File Name", 
-                          col_wrap=5,
-                          data=plot_df, 
-                          kind="bar", 
-                          ci=None,
-                          sharey=False,
-                          sharex=False,
-                          color="blue")
-            plt.savefig(f"{outdir}/{subplot_prefix}_{file_prefix}.png")
+            grid = FacetGrid(plot_df,
+                             col='Sample File Name', 
+                             col_wrap=5, 
+                             sharey=False, 
+                             sharex=False)
+            grid.map(bar, 
+                     'Size', 
+                     'Area', 
+                     width = 10)
+            grid.set_titles('{col_name}')
+
+            grid.savefig(f"{outdir}/{subplot_prefix}_{file_prefix}.png")
     else:
         pass
-
-#import seaborn
-#import matplotlib as plt
-#colors = {"Removed": 'r', "Kept": 'g'}
-#grid = seaborn.FacetGrid(plot_df, col='Sample File Name', col_wrap=5, sharey=False, sharex=False)
-#grid.map(plt.pyplot.bar, 'Size', 'Area', width = 10, color = [colors[i] for i in plot_df['Status']])
-#grid.set_titles('{col_name}')
-
 
 def init_logging(log_filename):
     '''If the log_filename is defined, then
@@ -469,18 +465,15 @@ def main():
 
     # Plot if plot_bool is True
     if plot_bool:
-        print("Plotting. This will take a while.")
-    
-    # Ignore future warnings from using Pandas in Seaborn
-    simplefilter(action='ignore', category=FutureWarning)
+        print("Plotting")
     
     plot(labelArtefacts(df, remove), 
-         f"{outdir}/{prefix}", 
+         prefix, 
          "before", 
          plot_bool, 
          outdir)
     plot(processed_df, 
-         f"{outdir}/{prefix}", 
+         prefix, 
          "after", 
          plot_bool, 
          outdir)
