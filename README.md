@@ -78,7 +78,7 @@ deactivate
 ## Help message
 ```
 $ genescanner -h
-Initializing parameters
+
 usage: genescanner [-h] [--outdir OUTDIR] [--prefix PREFIX] [--version] [--peak_gap PEAK_GAP]
                    [--cluster_size CLUSTER_SIZE] [--filter FILTER]
                    input
@@ -109,5 +109,5 @@ genescanner.py \
   --peak_gap 1.7 \
   --filter 0 \
   --cluster_size 3 \
-  ./test/test_input/input_basic_test.csv
+  ./mySamples.csv
 ```
