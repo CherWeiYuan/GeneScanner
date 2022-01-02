@@ -10,6 +10,8 @@ This program is released as open source software under the terms of [MIT License
 
 # Installing
 
+Python 3 is required for this software.
+
 Clone this repository: 
 ```
 git clone https://github.com/CherWeiYuan/GeneScanner.git
@@ -19,8 +21,6 @@ Move into the repository directory:
 ```
 cd GeneScanner
 ```
-
-Python 3 is required for this software.
 
 Install inside a virtual environment:
 
