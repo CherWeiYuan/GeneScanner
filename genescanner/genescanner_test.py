@@ -30,6 +30,7 @@ def test_wholeProgram(expected, test_type):
         result = pd.read_csv("./test/temp/WholeProgramTest.csv")
     except PermissionError:
         sys.exit()
+    
     expected = pd.read_csv("./test/test_output/output_basic_test.csv")
     pd.testing.assert_frame_equal(result, expected, 
                                   check_dtype=False,
