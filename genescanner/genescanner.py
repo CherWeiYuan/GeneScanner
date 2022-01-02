@@ -40,9 +40,13 @@ def parse_args():
     description = "Reads the output of GeneScan in csv format, remove \
         peaks with small or relatively small areas, and calculates, for \
         each sample, the percentage of the total area that each peak covers."
-    epilog = "Example usage: python3 genescanner.py --outdir /mnt/c/genescan/out \
-        --prefix test_2 \
-        /mnt/c/genescan/in/input.csv"
+    epilog = "Example usage: python3 genescanner.py \
+                        --outdir ./output \
+                        --prefix mySamples \
+                        --peak_gap 1.7 \
+                        --filter 0 \
+                        --cluster_size 3 \
+                        ./test/test_input/input_basic_test.csv"
     parser = ArgumentParser(description=description,
                             epilog=epilog)
     parser.add_argument('input',
@@ -61,8 +65,8 @@ def parse_args():
                         version=str(PROGRAM_VERSION))
     parser.add_argument('--peak_gap',
                         type=float,
-                        default = 1.0,
-                        help='DEFAULT = 1.0. A pair of peaks within peak_gap \
+                        default = 1.7,
+                        help='DEFAULT = 1.7. A pair of peaks within peak_gap \
                             of each other will be processed to give one peak')
     parser.add_argument('--cluster_size',
                         type=int,
@@ -73,8 +77,8 @@ def parse_args():
     parser.add_argument('--filter',
                         metavar='FILTER',
                         type=float,
-                        default = 1.0,
-                        help='DEFAULT = 1.0. Float. Remove all peaks with \
+                        default = 0.0,
+                        help='DEFAULT = 0.0. Float. Remove all peaks with \
                             percentage area lower than filter. Percentage \
                             area refers to the area of the peak over the \
                             area of all peaks of the same sample.') 
@@ -116,14 +120,13 @@ def loadDf(input_file):
     df["Sample File Name"] = df["Sample File Name"].str.rstrip().str.lstrip()
     
     # Check if df column names are correct
-    expected = ['Dye/Sample Peak','Sample File Name',
-                'Marker','Allele','Size','Height','Area',
-                'Data Point']
-    if list(df.columns) != expected:
-        exit_with_error(f"Unexpected column header detected. \
-                        Rename columns to {expected} and retry", 
-                        EXIT_COLUMN_HEADER_ERROR)    
-    
+    expected = ['Sample File Name',
+                'Size','Height','Area']
+    for i in expected:
+        if i not in list(df.columns):
+            exit_with_error(f"Unexpected column header detected. \
+                            Rename columns to {expected} and retry", 
+                            EXIT_COLUMN_HEADER_ERROR)    
     return df
        
 def getSampleNames(df):
@@ -398,7 +401,6 @@ def init_logging(log_filename):
         info('command line: %s', ' '.join(sys.argv))
 
 def main():
-    print("Initializing parameters")
     # Get user-defined parameters
     args = parse_args()
     input_file = args.input
@@ -420,14 +422,12 @@ def main():
     log_filename = f"{prefix}_log.txt"
     init_logging(f"{outdir}/{log_filename}")
     
-    print("Loading and cleaning data")
     # Load and clean input
     df = loadDf(input_file)
     
     # Get all sample names
     sample_names = getSampleNames(df)
     
-    print("Processing calculations")
     # Find all peak clusters
     # Peak clusters collectively form mountain ranges
     mountain_ranges = findMountainRanges(df, sample_names, peak_gap)
