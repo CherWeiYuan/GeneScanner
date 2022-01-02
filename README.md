@@ -23,11 +23,26 @@ cd GeneScanner
 Python 3 is required for this software.
 
 Install inside a virtual environment:
+
+Install virtualenv 
 ```
 pip install virtualenv
+```
+
+Create and start virtual environment named gsenv
+```
 virtualenv gsenv -p `which python3`
 source gsenv/bin/activate
+```
+
+Install GeneScanner inside environment
+```
 pip install .
+```
+
+Deactivate environment once installation is done
+```
+deactivate
 ```
 
 # Testing
@@ -36,11 +51,29 @@ pip install .
 
 Test package is provided in GeneScanner/genescanner/test. You should run the test with the following commands:
 ```
+source gsenv/bin/activate
 cd GeneScanner/genescanner
 python3 genescanner_test.py
+deactivate
 ```
 
 GitHub template used here is provided by https://github.com/bionitio-team/bionitio
+
+# Execute
+
+## Quick start
+```
+cd GeneScanner/genescanner
+source gsenv/bin/activate
+genescanner \
+  --outdir ./output \
+  --prefix mySamples \
+  --peak_gap 1.7 \
+  --filter 0 \
+  --cluster_size 3 \
+  ./test/test_input/input_basic_test.csv
+deactivate
+```
 
 ## Help message
 ```
@@ -61,14 +94,20 @@ optional arguments:
   --outdir OUTDIR       Name of output directory
   --prefix PREFIX       Prefix name of output files
   --version             show program's version number and exit
-  --peak_gap PEAK_GAP   DEFAULT = 1.0. A pair of peaks within peak_gap of each other will be processed to give one
+  --peak_gap PEAK_GAP   DEFAULT = 1.7. A pair of peaks within peak_gap of each other will be processed to give one
                         peak
   --cluster_size CLUSTER_SIZE
                         DEFAULT = 3. The maximum number of peaks within peak_gap of each other that will be processed
                         together. Only one peak with largest area will remain.
-  --filter FILTER       DEFAULT = 1.0. Float. Remove all peaks with percentage area lower than filter. Percentage area
+  --filter FILTER       DEFAULT = 0.0. Float. Remove all peaks with percentage area lower than filter. Percentage area
                         refers to the area of the peak over the area of all peaks of the same sample.
 
-Example usage: python3 genescanner.py --outdir /mnt/c/genescan/out --prefix test_2 /mnt/c/genescan/in/input.csv
+Example usage: 
+genescanner.py \
+  --outdir ./output \
+  --prefix mySamples \
+  --peak_gap 1.7 \
+  --filter 0 \
+  --cluster_size 3 \
+  ./test/test_input/input_basic_test.csv
 ```
-
