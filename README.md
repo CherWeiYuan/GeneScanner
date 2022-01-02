@@ -10,12 +10,6 @@ This program is released as open source software under the terms of [MIT License
 
 # Installing
 
-## Installing directly from source code
-
-# Test
-cd GeneScanner/genescanner
-python3 genescanner_test.py
-
 Clone this repository: 
 ```
 git clone https://github.com/CherWeiYuan/GeneScanner.git
