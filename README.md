@@ -64,12 +64,9 @@ deactivate
 cd GeneScanner/genescanner
 source gsenv/bin/activate
 genescanner \
-  --outdir ./output \
+  --outdir mnt/c/mySamples/output \
   --prefix mySamples \
-  --peak_gap 1.7 \
-  --filter 0 \
-  --cluster_size 3 \
-  ./test/test_input/input_basic_test.csv
+  /mnt/c/mySamples/mySamples.csv
 deactivate
 ```
 
@@ -99,11 +96,7 @@ optional arguments:
   --filter FILTER       DEFAULT = 0.0. Float. Remove all peaks with percentage area lower than filter. Percentage area
                         refers to the area of the peak over the area of all peaks of the same sample.
 
-Example usage: 
-genescanner \
---outdir ./output \
---prefix mySamples \
-/mnt/c/myinput/mySamples.csv
+Example usage: genescanner --outdir mnt/c/mySamples/output --prefix mySamples /mnt/c/mySamples/mySamples.csv
 ```
 
 GitHub template used here is provided by https://github.com/bionitio-team/bionitio
