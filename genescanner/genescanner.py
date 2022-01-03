@@ -14,10 +14,11 @@ situations, many peaks will not be removed) and the decision to keep
 or remove peaks is left to the user.
 """
 PROGRAM_NAME = "genescanner"
-PROGRAM_VERSION = 1.0
+PROGRAM_VERSION = "1.0.0"
 
 EXIT_COLUMN_HEADER_ERROR = 1
 DIRECTORY_MISSING_ERROR = 2
+PERMISSION_ERROR = 3
 
 import sys
 from os import mkdir
@@ -38,15 +39,12 @@ def parse_args():
     Parse command line arguments.
     """
     description = "Reads the output of GeneScan in csv format, remove \
-        peaks with small or relatively small areas, and calculates, for \
-        each sample, the percentage of the total area that each peak covers."
-    epilog = "Example usage: python3 genescanner.py \
-                        --outdir ./output \
+        peaks with small area, and calculates, for each sample, the \
+        percentage of the total area that each peak covers."
+    epilog = "Example usage: genescanner \
+                        --outdir mnt/c/mySamples/output \
                         --prefix mySamples \
-                        --peak_gap 1.7 \
-                        --filter 0 \
-                        --cluster_size 3 \
-                        ./test/test_input/input_basic_test.csv"
+                        /mnt/c/mySamples/mySamples.csv"
     parser = ArgumentParser(description=description,
                             epilog=epilog)
     parser.add_argument('input',
@@ -124,8 +122,7 @@ def loadDf(input_file):
                 'Size','Height','Area']
     for i in expected:
         if i not in list(df.columns):
-            exit_with_error(f"Unexpected column header detected. \
-                            Rename columns to {expected} and retry", 
+            exit_with_error(f"Unexpected column header detected. Rename columns to {expected} and retry", 
                             EXIT_COLUMN_HEADER_ERROR)    
     return df
        
@@ -378,6 +375,7 @@ def plot(df_before, df_after, prefix, outdir):
     grid.set_titles('{row_name} ({col_name})')
     grid.figure.subplots_adjust(wspace=1.2)
     grid.set_axis_labels("Size (bp)", "Area of peak")
+    grid.add_legend()
     grid.savefig(f"{outdir}/{prefix}.png")
 
 def init_logging(log_filename):
@@ -409,7 +407,17 @@ def main():
     peak_gap = args.peak_gap
     filter_threshold = args.filter
     cluster_size = args.cluster_size
-
+    
+    # Ensure output file is not opened
+    try:
+        temp = pd.read_csv(f"{outdir}/{prefix}.csv")
+        temp.to_csv(f"{outdir}/{prefix}.csv", index = False)
+    except PermissionError:
+        exit_with_error(f"Please close {outdir}/{prefix}.csv and try again", 
+                        PERMISSION_ERROR)
+    except FileNotFoundError:
+        pass
+                        
     # Check if output directory is available
     try:
         if not path.exists(f"{outdir}"):
