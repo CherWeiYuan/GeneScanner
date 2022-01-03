@@ -2,7 +2,9 @@
 
 # Overview 
 
-GeneScanner reads a raw GeneScan datasheet, removes dirty peaks, calculates the percentage area of each peak among all peaks in the sample and output a cleaned csv datasheet.
+GeneScanner reads a raw GeneScan datasheet, removes dirty peaks, calculates the percentage area of each peak among all peaks in the sample. Output a cleaned csv datasheet and plot of peaks before and after processing:
+
+![alt text](https://github.com/CherWeiYuan/GeneScanner/blob/main/miscellaneous/sample_plot.png?raw=true)
 
 # Licence
 
