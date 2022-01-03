@@ -57,8 +57,6 @@ python3 genescanner_test.py
 deactivate
 ```
 
-GitHub template used here is provided by https://github.com/bionitio-team/bionitio
-
 # Execute
 
 ## Quick start
@@ -78,13 +76,12 @@ deactivate
 ## Help message
 ```
 $ genescanner -h
-
 usage: genescanner [-h] [--outdir OUTDIR] [--prefix PREFIX] [--version] [--peak_gap PEAK_GAP]
                    [--cluster_size CLUSTER_SIZE] [--filter FILTER]
                    input
 
-Reads the output of GeneScan in csv format, remove peaks with small or relatively small areas, and calculates, for
-each sample, the percentage of the total area that each peak covers.
+Reads the output of GeneScan in csv format, remove peaks with small area, and calculates, for each sample, the
+percentage of the total area that each peak covers.
 
 positional arguments:
   input                 Input GeneScan datasheet in CSV format
@@ -103,11 +100,10 @@ optional arguments:
                         refers to the area of the peak over the area of all peaks of the same sample.
 
 Example usage: 
-genescanner.py \
-  --outdir ./output \
-  --prefix mySamples \
-  --peak_gap 1.7 \
-  --filter 0 \
-  --cluster_size 3 \
-  ./mySamples.csv
+genescanner \
+--outdir ./output \
+--prefix mySamples \
+/mnt/c/myinput/mySamples.csv
 ```
+
+GitHub template used here is provided by https://github.com/bionitio-team/bionitio
