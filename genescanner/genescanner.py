@@ -468,3 +468,61 @@ def main():
 if __name__ == '__main__':
     main()
 
+##### Development for isoform assignment to peaks
+
+from itertools import combinations
+
+def findTopExonCombinations(exon_sizes, peak_size, min_topN):
+    perm_list = []
+    Error_list = []
+    remove_list = []
+    exon_combi = {}
+    
+    # Find all exon combinations
+    for i in range(len(exon_sizes)):
+        perm_list += [ list(x) for x in combinations(exon_sizes, i+1) ]
+    
+    # Find Error, i.e. the difference between peak size and sum of exon size
+    Error_list = [ sum(x)-peak_size for x in perm_list ]
+
+    # Get index of negative sums
+    for i in range(len(Error_list)):
+        if Error_list[i] < 0:
+            remove_list += [i]
+        
+    # Remove negative sums using index, starting from largest index
+    for i in sorted(remove_list, reverse=True):
+        del perm_list[i]
+        del Error_list[i]
+
+    # Find N=min_topN exon combinations closest to peak_size
+    Error_value = None
+    for i in range(min_topN):
+        try:
+            Error_value = min(Error_list)
+            # Count number of Error_value in Error_list
+            count = Error_list.count(Error_value)
+            exon_combi[Error_value] = []
+            for k in range(count):
+                # Find index of minimum difference
+                min_pos = Error_list.index(Error_value)
+                # Keep exon combination with minimum difference
+                exon_combi[Error_value] += [ perm_list[min_pos] ]
+                # Remove exon combination from both lists
+                perm_list.pop(min_pos)
+                Error_list.pop(min_pos)
+        # Catch error when Error_list is empty
+        except ValueError:
+            break
+    
+    # exon_combi = { ErrorA = [ [exon set 1], [exon set 2]... ]
+    #                ErrorB = [ [exon set 3], [exon set 4]... ] }
+    return exon_combi
+
+## to do
+# unsupervised: calculate shift
+# if low N, iterate maximization algorithm to find shift that best fits data
+# if high N, use mean and sd to find mean E, which is likely shift, and use 
+# maximization algorithm to find shift
+# label E in datasheet
+# supervised: calculate shift
