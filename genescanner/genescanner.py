@@ -19,7 +19,6 @@ PROGRAM_VERSION = "1.0.1"
 EXIT_COLUMN_HEADER_ERROR = 1
 DIRECTORY_MISSING_ERROR = 2
 PERMISSION_ERROR = 3
-MIN_SHIFT_ERROR = 4
 
 import sys
 from os import mkdir
@@ -495,13 +494,8 @@ def findAllExonCombinations(exon_sizes, peak_size):
     # Returns dictionary where keys are Error values
     # and values are list of exon_combinations: 
     #      [ [exon set 1], [exon set 2]... ]
-    # negative_tolerance: because of Error distribution, some valid exon 
-    #                     combination will have negative Error values, so
-    #                     negative_tolerance allows small margin of negative 
-    #                     value, which should be assigned based on distribution
     perm_list = []
     Error_list = []
-    remove_list = []
     
     # Find all exon combinations
     for i in range(len(exon_sizes)):
@@ -509,17 +503,6 @@ def findAllExonCombinations(exon_sizes, peak_size):
     
     # Find Error, i.e. the difference between peak size and sum of exon size
     Error_list = [ sum(x)-peak_size for x in perm_list ]
-
-    # Get index of negative sums
-    for i in range(len(Error_list)):
-        if Error_list[i] < negative_tolerance:
-            remove_list += [i]
-        
-    # Remove negative sums using index, starting from largest index
-    for i in sorted(remove_list, reverse=True):
-        del perm_list[i]
-        del Error_list[i]
-    remove_list = []
     
     # Make dictionary of Error: Exon combination
     errorExonMap = {}
@@ -531,33 +514,14 @@ def findAllExonCombinations(exon_sizes, peak_size):
     
     return errorExonMap
 
-def SelectExonCombinations(errorExonMap, shift):
+def SelectExonCombinations(errorExonMap, size):
     # errorExonMap = { ErrorA = [ [exon set 1], [exon set 2]... ],
     #                  ErrorB = [ [exon set 3], [exon set 4]... ] }
     
-    # If shift is unspecified, return the exon combination
-    # with the lowest error in the format
-    # errorExonMap = { ErrorA = [ [exon set 1], [exon set 2]... ] }
-    # Note that min_Error can be positive or negative
-    if shift == None:
-        # If an exon combination exists
-        try:
-            min_Error = min(errorExonMap.values())
-            return { min_Error: errorExonMap[min_Error] }
-        # If an exon combination cannot be found (i.e. min({})),
-        # return empty dictionary
-        except ValueError:
-            return {}
-    
-    # If shift is specified (integer), 
-    # find exon combination closest to peak_size, 
+    # Find exon combination closest to peak_size closest to size,
     # whether Error is positive or negative 
-    elif type(shift) == int:
-        closest_Error = findClosestError(list(errorExonMap.keys()), shift)
-        return { closest_Error: errorExonMap[closest_Error]}
-    
-    else:
-        exit_with_error("min_shift is neither integer nor None", 4)
+    closest_Error = findClosestError(list(errorExonMap.keys()), size)
+    return { closest_Error: errorExonMap[closest_Error]}
 
 
 ## to do
@@ -577,23 +541,27 @@ Sample File Name    Exon    Exon Size
 """
 from numpy import nan
 # if exon_df != None:
-def assignExonCombinationsToDf(processed_df, exon_df, sample_names, negative_tolerance):
+def assignExonCombinationsToDf(processed_df, 
+                               exon_df, 
+                               sample_names):
     processed_df["Exon Combination"] = nan
     processed_df["Error"] = nan
+    
     # Loop through processed_df sample by sample
     for i in sample_names:
         dfSample = processed_df.loc[processed_df.iloc[:,1] == i, :]
+        
         # Get all possible exon sizes for each sample
         dfExonSample = exon_df.loc[exon_df.iloc[:,1] == i, :]
         exon_sizes = list(dfExonSample["Exon Size"])
+        
         # Assign Error, exon combinations to each peak in sample 
         for index, row in dfSample:
-            # Get exon combinations and calculate Error
+            # Get exon combination with error closest to zero
             peak_size = dfSample.loc[index, "Size"]
             out = SelectExonCombinations(findAllExonCombinations(exon_sizes, 
-                                                                 peak_size,
-                                                                 negative_tolerance), 
-                                         None)
+                                                                 peak_size), 
+                                         0)
             # Assign exon combinations with top 3 lowest Error
             for key, value in out.items():
                 try:
@@ -610,6 +578,5 @@ def findShift(processed_exon_df):
     Error_list = []
     for index, row in processed_exon_df:
         Error_list += [ min(processed_exon_df.loc[index, "Error"]) ]
-    ### Continue
-
+    #
 
