@@ -13,6 +13,7 @@ The hard filtering procedure here has low threshold (in ambiguous
 situations, many peaks will not be removed) and the decision to keep
 or remove peaks is left to the user.
 """
+
 PROGRAM_NAME = "genescanner"
 PROGRAM_VERSION = "1.0.1"
 
@@ -76,6 +77,10 @@ def parse_args():
                         type=float,
                         default = 0.0,
                         help='DEFAULT = 0.0. Float. Remove all peaks with percentage area lower than filter. Percentage area refers to the area of the peak over the area of all peaks of the same sample.') 
+    parser.add_argument('--shift_range',
+                        type=list,
+                        default=[-500, 500, 0.5],
+                        help='Range of Error landscape')
     return parser.parse_args()
 
 def exit_with_error(message, exit_status):
@@ -409,6 +414,11 @@ def main():
     peak_gap = args.peak_gap
     filter_threshold = args.filter
     cluster_size = args.cluster_size
+    exon_df = args.exon_dif
+    shift_range = args.shift_range
+    shift_start = shift_range[0]
+    shift_end  = shift_range[1]
+    shift_step = shift_range[2]
     
     # Ensure output file is not opened
     try:
@@ -453,13 +463,34 @@ def main():
     processed_df = filterAreaPercent(processed_df, filter_threshold)
     
     # Save output df to csv
-    processed_df.to_csv(f"{outdir}/{prefix}.csv", index = False)
+    processed_df.to_csv(f"{outdir}/{prefix}_cleanPeaks.csv", 
+                        index = False)
 
     # Plot 
     plot(labelArtefacts(df, remove), 
          labelArtefacts(processed_df, []), 
          prefix, 
          outdir)
+    
+    # Get dataframe of shift against Error
+    Error_df = drawErrorLandscape(processed_df, 
+                                  exon_df, 
+                                  sample_names,
+                                  shift_start, shift_end, shift_step)
+    
+    # Calculate shift
+    shift = findShift(Error_df)
+    
+    # Assign exon combinations to processed_df
+    exon_processed_df = processDF(processed_df, 
+                                  exon_df, 
+                                  sample_names, 
+                                  shift[0], 
+                                  "AssignExonCombinations")
+    
+    # Save processed_df to csv
+    exon_processed_df.to_csv(f"{outdir}/{prefix}_AssignedExons.csv", 
+                             index = False)
     
     # Inform completion
     info(f"Output saved to {outdir}")
@@ -471,11 +502,18 @@ if __name__ == '__main__':
     main()
 
 ##### Development for isoform assignment to peaks
+# Note all sizes are in base pair (bp)
+# Log shift and command inputs
+# Plot error-shift line graph as visual quality control
+# Position of df is important: pos 1 is "Sample File Name"
+# Need to read exon_df
 
 from itertools import combinations
 from bisect import bisect_left
+from numpy import arange
 
 def findClosestError(Error_list, shift):
+    Error_list = sorted(Error_list)
     pos = bisect_left(Error_list, shift)
     if pos == 0:
         return Error_list[0]
@@ -488,7 +526,7 @@ def findClosestError(Error_list, shift):
     else:
         return before
 
-def findAllExonCombinations(exon_sizes, peak_size):
+def findAllExonCombinations(exon_sizes, size):
     # Finds all exon combinations 
     # and calculates Error for each combination
     # Returns dictionary where keys are Error values
@@ -502,15 +540,15 @@ def findAllExonCombinations(exon_sizes, peak_size):
         perm_list += [ list(x) for x in combinations(exon_sizes, i+1) ]
     
     # Find Error, i.e. the difference between peak size and sum of exon size
-    Error_list = [ sum(x)-peak_size for x in perm_list ]
+    Error_list = [ sum(x)-size for x in perm_list ]
     
     # Make dictionary of Error: Exon combination
     errorExonMap = {}
     for i in range(len(Error_list)):
         try:
-            errorExonMap[i] += [ perm_list[i] ]
+            errorExonMap[Error_list[i]] += [ perm_list[i] ]
         except KeyError:
-            errorExonMap[i] = perm_list[i]
+            errorExonMap[Error_list[i]] = [ perm_list[i] ]
     
     return errorExonMap
 
@@ -523,60 +561,93 @@ def SelectExonCombinations(errorExonMap, size):
     closest_Error = findClosestError(list(errorExonMap.keys()), size)
     return { closest_Error: errorExonMap[closest_Error]}
 
+def processDF(processed_df, 
+              exon_df, 
+              sample_names,
+              shift,
+              function):
+    """
+    exon df structure
+    Sample File Name    Exon    Exon Size
+    """
 
-## to do
-# unsupervised: calculate shift
-# if low N, iterate maximization algorithm to find shift that best fits data
-# if high N, use median and sd to find average E, which is likely the shift, and use 
-# use percent area as weight (meeting large peak areas is more significant 
-# than meeting small peak areas)
-# maximization algorithm to find shift
-# label E in datasheet
-# supervised: calculate shift
-
-# Note all sizes are in base pair (bp)
-
-"""
-Sample File Name    Exon    Exon Size
-"""
-from numpy import nan
-# if exon_df != None:
-def assignExonCombinationsToDf(processed_df, 
-                               exon_df, 
-                               sample_names):
-    processed_df["Exon Combination"] = nan
-    processed_df["Error"] = nan
+    processed_df["Exon Combination"] = None
+    processed_df["Error"] = None
     
     # Loop through processed_df sample by sample
     for i in sample_names:
-        dfSample = processed_df.loc[processed_df.iloc[:,1] == i, :]
+        dfSample = processed_df.loc[processed_df.iloc[:, 0] == i, :]
         
         # Get all possible exon sizes for each sample
-        dfExonSample = exon_df.loc[exon_df.iloc[:,1] == i, :]
+        dfExonSample = exon_df.loc[exon_df.iloc[:, 0] == i, :]
         exon_sizes = list(dfExonSample["Exon Size"])
         
         # Assign Error, exon combinations to each peak in sample 
-        for index, row in dfSample:
+        for index, row in dfSample.iterrows():
             # Get exon combination with error closest to zero
             peak_size = dfSample.loc[index, "Size"]
-            out = SelectExonCombinations(findAllExonCombinations(exon_sizes, 
-                                                                 peak_size), 
-                                         0)
-            # Assign exon combinations with top 3 lowest Error
+            errorExonMap = findAllExonCombinations(exon_sizes, peak_size + shift) 
+            out = SelectExonCombinations(errorExonMap, 0) 
+            # Assign exon combinations
             for key, value in out.items():
                 try:
                     processed_df.at[index, "Exon Combination"] += [value]
-                    processed_df.at[index, "Error"] += [key]
                 except TypeError:
                     processed_df.at[index, "Exon Combination"] = [value]
-                    processed_df.at[index, "Error"] = [key]        
+                    processed_df.at[index, "Error"] = key  
+                    
+    if function == "findLowestError":
+        return sum(processed_df["Error"])
+    
+    elif function == "AssignExonCombinations":
+        return processed_df
 
-    return processed_df
+def drawErrorLandscape(processed_df, 
+                       exon_df, 
+                       sample_names,
+                       shift_start, shift_end, shift_step):
+    # Create new df
+    Error_df = pd.DataFrame(columns = ["Shift", "Error"])
+    
+    # Initialize parameters
+    count = 0
+    total_iterations = (shift_end - shift_start)/shift_step
+    
+    # Add Shift, Error row by row to Error_df
+    for shift in arange(shift_start, shift_end, shift_step):
+        Error = processDF(processed_df, 
+                          exon_df, 
+                          sample_names,
+                          shift,
+                          "findLowestError")
+        Error_df.loc[count] = [shift, Error]
+        count += 1
+        print(f"Iteration {count}/ {total_iterations} completed")
+        
+    return Error_df
 
-def findShift(processed_exon_df):
-    # Find min Error for each peak and store in list
-    Error_list = []
-    for index, row in processed_exon_df:
-        Error_list += [ min(processed_exon_df.loc[index, "Error"]) ]
-    #
+def findShift(Error_df):
+    min_Error = min(Error_df["Error"])
+    shift_list = Error_df.index[Error_df["Error"] == min_Error].tolist()
+    return shift_list
 
+# TEST
+import pandas as pd
+exon_df = pd.read_csv("test_exon_input.csv")
+df = loadDF("input_basic_test.csv")
+processDF(processed_df, 
+              exon_df, 
+              sample_names,
+              shift,
+              "findLowestError")
+exon_processed_df1 = processDF(processed_df, 
+                                  exon_df, 
+                                  sample_names, 
+                                  -273, 
+                                  "AssignExonCombinations")
+    
+exon_processed_df2 = processDF(processed_df, 
+                                  exon_df, 
+                                  sample_names, 
+                                  0, 
+                                  "AssignExonCombinations")    
