@@ -472,20 +472,20 @@ def main():
          prefix, 
          outdir)
     
-    # Get dataframe of shift against Error
-    Error_df = drawErrorLandscape(processed_df, 
+    # Get dict of shift against Error
+    Error_dict = drawErrorLandscape(processed_df, 
                                   exon_df, 
                                   sample_names,
                                   shift_start, shift_end, shift_step)
     
     # Calculate shift
-    shift = findShift(Error_df)
+    shift = findShift(Error_dict)
     
     # Assign exon combinations to processed_df
     exon_processed_df = processDF(processed_df, 
                                   exon_df, 
                                   sample_names, 
-                                  shift[0], 
+                                  shift, 
                                   "AssignExonCombinations")
     
     # Save processed_df to csv
@@ -594,7 +594,7 @@ def processDF(processed_df,
                     processed_df.at[index, "Exon Combination"] += [value]
                 except TypeError:
                     processed_df.at[index, "Exon Combination"] = [value]
-                    processed_df.at[index, "Error"] = key  
+                    processed_df.at[index, "Error"] = round(key, 2)  
                     
     if function == "findLowestError":
         return sum(processed_df["Error"])
@@ -607,29 +607,34 @@ def drawErrorLandscape(processed_df,
                        sample_names,
                        shift_start, shift_end, shift_step):
     # Create new df
-    Error_df = pd.DataFrame(columns = ["Shift", "Error"])
+    Error_dict = {}
     
     # Initialize parameters
     count = 0
     total_iterations = (shift_end - shift_start)/shift_step
     
-    # Add Shift, Error row by row to Error_df
+    # Add Shift, Error to Error_dict
     for shift in arange(shift_start, shift_end, shift_step):
         Error = processDF(processed_df, 
                           exon_df, 
                           sample_names,
                           shift,
                           "findLowestError")
-        Error_df.loc[count] = [shift, Error]
+        Error_dict[Error] = shift
         count += 1
         print(f"Iteration {count}/ {total_iterations} completed")
         
-    return Error_df
+    return Error_dict
 
-def findShift(Error_df):
-    min_Error = min(Error_df["Error"])
-    shift_list = Error_df.index[Error_df["Error"] == min_Error].tolist()
-    return shift_list
+def findShift(Error_dict):
+    Error_list = list(Error_dict.keys())
+    Error_near_zero = findClosestError(Error_list, 0)
+    shift = Error_dict[Error_near_zero]
+    return shift
+
+def translateSizeToExon(processed_df, exon_df):
+    for index, row in processed_df.iterrows():
+        
 
 # TEST
 import pandas as pd
