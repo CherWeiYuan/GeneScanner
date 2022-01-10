@@ -14,11 +14,12 @@ situations, many peaks will not be removed) and the decision to keep
 or remove peaks is left to the user.
 """
 PROGRAM_NAME = "genescanner"
-PROGRAM_VERSION = "1.0.0"
+PROGRAM_VERSION = "1.0.1"
 
 EXIT_COLUMN_HEADER_ERROR = 1
 DIRECTORY_MISSING_ERROR = 2
 PERMISSION_ERROR = 3
+MIN_SHIFT_ERROR = 4
 
 import sys
 from os import mkdir
@@ -38,18 +39,20 @@ def parse_args():
     """
     Parse command line arguments.
     """
-    description = "Reads the output of GeneScan in csv format, remove \
-        peaks with small area, and calculates, for each sample, the \
-        percentage of the total area that each peak covers."
+    description = "Reads the output of GeneScan in csv format, remove peaks with small area, and calculates, for each sample, the percentage of the total area that each peak covers."
     epilog = "Example usage: genescanner \
-                        --outdir mnt/c/mySamples/output \
-                        --prefix mySamples \
-                        /mnt/c/mySamples/mySamples.csv"
+        --outdir mnt/c/mySamples/output \
+        --prefix mySamples \
+        /mnt/c/mySamples/mySamples.csv"
     parser = ArgumentParser(description=description,
                             epilog=epilog)
     parser.add_argument('input',
                         type=str,
-                        help='Input GeneScan datasheet in CSV format')
+                        help="Input GeneScan datasheet from a single run in CSV format. A single run can contain many samples but they share the same capillary injection")
+    parser.add_argument('--exon_df',
+                        type=str,
+                        default = None,
+                        help='Datasheet containing exon sizes per sample in CSV format')
     parser.add_argument('--outdir',
                         type=str,
                         default='stdout',
@@ -64,22 +67,16 @@ def parse_args():
     parser.add_argument('--peak_gap',
                         type=float,
                         default = 1.7,
-                        help='DEFAULT = 1.7. A pair of peaks within peak_gap \
-                            of each other will be processed to give one peak')
+                        help='DEFAULT = 1.7. A pair of peaks within peak_gap of each other will be processed to give one peak')
     parser.add_argument('--cluster_size',
                         type=int,
                         default = 3,
-                        help='DEFAULT = 3. The maximum number of peaks within \
-                        peak_gap of each other that will be processed together. \
-                        Only one peak with largest area will remain.')
+                        help='DEFAULT = 3. The maximum number of peaks within peak_gap of each other that will be processed together. Only one peak with largest area will remain.')
     parser.add_argument('--filter',
                         metavar='FILTER',
                         type=float,
                         default = 0.0,
-                        help='DEFAULT = 0.0. Float. Remove all peaks with \
-                            percentage area lower than filter. Percentage \
-                            area refers to the area of the peak over the \
-                            area of all peaks of the same sample.') 
+                        help='DEFAULT = 0.0. Float. Remove all peaks with percentage area lower than filter. Percentage area refers to the area of the peak over the area of all peaks of the same sample.') 
     return parser.parse_args()
 
 def exit_with_error(message, exit_status):
@@ -116,6 +113,12 @@ def loadDf(input_file):
         
     # Clean sample names by removing leading and trailing white space
     df["Sample File Name"] = df["Sample File Name"].str.rstrip().str.lstrip()
+    
+    # Clean df by making sure dtype is correct
+    df = df.astype({'Sample File Name': str,
+                    'Size': float, 
+                    'Height': float, 
+                    'Area': float})
     
     # Check if df column names are correct
     expected = ['Sample File Name',
@@ -471,12 +474,34 @@ if __name__ == '__main__':
 ##### Development for isoform assignment to peaks
 
 from itertools import combinations
+from bisect import bisect_left
 
-def findTopExonCombinations(exon_sizes, peak_size, min_topN):
+def findClosestError(Error_list, shift):
+    pos = bisect_left(Error_list, shift)
+    if pos == 0:
+        return Error_list[0]
+    if pos == len(Error_list):
+        return Error_list[-1]
+    before = Error_list[pos - 1]
+    after = Error_list[pos]
+    if (shift - before) > (after - shift):
+        return after
+    else:
+        return before
+
+def findAllExonCombinations(exon_sizes, peak_size):
+    # Finds all exon combinations 
+    # and calculates Error for each combination
+    # Returns dictionary where keys are Error values
+    # and values are list of exon_combinations: 
+    #      [ [exon set 1], [exon set 2]... ]
+    # negative_tolerance: because of Error distribution, some valid exon 
+    #                     combination will have negative Error values, so
+    #                     negative_tolerance allows small margin of negative 
+    #                     value, which should be assigned based on distribution
     perm_list = []
     Error_list = []
     remove_list = []
-    exon_combi = {}
     
     # Find all exon combinations
     for i in range(len(exon_sizes)):
@@ -487,42 +512,104 @@ def findTopExonCombinations(exon_sizes, peak_size, min_topN):
 
     # Get index of negative sums
     for i in range(len(Error_list)):
-        if Error_list[i] < 0:
+        if Error_list[i] < negative_tolerance:
             remove_list += [i]
         
     # Remove negative sums using index, starting from largest index
     for i in sorted(remove_list, reverse=True):
         del perm_list[i]
         del Error_list[i]
-
-    # Find N=min_topN exon combinations closest to peak_size
-    Error_value = None
-    for i in range(min_topN):
-        try:
-            Error_value = min(Error_list)
-            # Count number of Error_value in Error_list
-            count = Error_list.count(Error_value)
-            exon_combi[Error_value] = []
-            for k in range(count):
-                # Find index of minimum difference
-                min_pos = Error_list.index(Error_value)
-                # Keep exon combination with minimum difference
-                exon_combi[Error_value] += [ perm_list[min_pos] ]
-                # Remove exon combination from both lists
-                perm_list.pop(min_pos)
-                Error_list.pop(min_pos)
-        # Catch error when Error_list is empty
-        except ValueError:
-            break
+    remove_list = []
     
-    # exon_combi = { ErrorA = [ [exon set 1], [exon set 2]... ]
-    #                ErrorB = [ [exon set 3], [exon set 4]... ] }
-    return exon_combi
+    # Make dictionary of Error: Exon combination
+    errorExonMap = {}
+    for i in range(len(Error_list)):
+        try:
+            errorExonMap[i] += [ perm_list[i] ]
+        except KeyError:
+            errorExonMap[i] = perm_list[i]
+    
+    return errorExonMap
+
+def SelectExonCombinations(errorExonMap, shift):
+    # errorExonMap = { ErrorA = [ [exon set 1], [exon set 2]... ],
+    #                  ErrorB = [ [exon set 3], [exon set 4]... ] }
+    
+    # If shift is unspecified, return the exon combination
+    # with the lowest error in the format
+    # errorExonMap = { ErrorA = [ [exon set 1], [exon set 2]... ] }
+    # Note that min_Error can be positive or negative
+    if shift == None:
+        # If an exon combination exists
+        try:
+            min_Error = min(errorExonMap.values())
+            return { min_Error: errorExonMap[min_Error] }
+        # If an exon combination cannot be found (i.e. min({})),
+        # return empty dictionary
+        except ValueError:
+            return {}
+    
+    # If shift is specified (integer), 
+    # find exon combination closest to peak_size, 
+    # whether Error is positive or negative 
+    elif type(shift) == int:
+        closest_Error = findClosestError(list(errorExonMap.keys()), shift)
+        return { closest_Error: errorExonMap[closest_Error]}
+    
+    else:
+        exit_with_error("min_shift is neither integer nor None", 4)
+
 
 ## to do
 # unsupervised: calculate shift
 # if low N, iterate maximization algorithm to find shift that best fits data
-# if high N, use mean and sd to find mean E, which is likely shift, and use 
+# if high N, use median and sd to find average E, which is likely the shift, and use 
+# use percent area as weight (meeting large peak areas is more significant 
+# than meeting small peak areas)
 # maximization algorithm to find shift
 # label E in datasheet
 # supervised: calculate shift
+
+# Note all sizes are in base pair (bp)
+
+"""
+Sample File Name    Exon    Exon Size
+"""
+from numpy import nan
+# if exon_df != None:
+def assignExonCombinationsToDf(processed_df, exon_df, sample_names, negative_tolerance):
+    processed_df["Exon Combination"] = nan
+    processed_df["Error"] = nan
+    # Loop through processed_df sample by sample
+    for i in sample_names:
+        dfSample = processed_df.loc[processed_df.iloc[:,1] == i, :]
+        # Get all possible exon sizes for each sample
+        dfExonSample = exon_df.loc[exon_df.iloc[:,1] == i, :]
+        exon_sizes = list(dfExonSample["Exon Size"])
+        # Assign Error, exon combinations to each peak in sample 
+        for index, row in dfSample:
+            # Get exon combinations and calculate Error
+            peak_size = dfSample.loc[index, "Size"]
+            out = SelectExonCombinations(findAllExonCombinations(exon_sizes, 
+                                                                 peak_size,
+                                                                 negative_tolerance), 
+                                         None)
+            # Assign exon combinations with top 3 lowest Error
+            for key, value in out.items():
+                try:
+                    processed_df.at[index, "Exon Combination"] += [value]
+                    processed_df.at[index, "Error"] += [key]
+                except TypeError:
+                    processed_df.at[index, "Exon Combination"] = [value]
+                    processed_df.at[index, "Error"] = [key]        
+
+    return processed_df
+
+def findShift(processed_exon_df):
+    # Find min Error for each peak and store in list
+    Error_list = []
+    for index, row in processed_exon_df:
+        Error_list += [ min(processed_exon_df.loc[index, "Error"]) ]
+    ### Continue
+
+
