@@ -12,6 +12,13 @@ each sample, the percentage of the total area that each peak covers.
 The hard filtering procedure here has low threshold (in ambiguous
 situations, many peaks will not be removed) and the decision to keep
 or remove peaks is left to the user.
+
+##### Development for isoform assignment to peaks
+# Note all sizes are in base pair (bp)
+# Log shift and command inputs
+# Plot error-shift line graph as visual quality control
+# Position of df is important: pos 1 is "Sample File Name"
+# Need to read exon_df
 """
 
 PROGRAM_NAME = "genescanner"
@@ -34,6 +41,10 @@ import pandas as pd
 from itertools import chain
 from seaborn import FacetGrid
 from matplotlib.pyplot import bar
+from itertools import combinations
+from bisect import bisect_left
+from numpy import arange
+from copy import deepcopy
 
 def parse_args():
     """
@@ -385,6 +396,171 @@ def plot(df_before, df_after, prefix, outdir):
     grid.add_legend()
     grid.savefig(f"{outdir}/{prefix}.png")
 
+def findClosestError(Error_list, shift):
+    Error_list = sorted(Error_list)
+    pos = bisect_left(Error_list, shift)
+    if pos == 0:
+        return Error_list[0]
+    if pos == len(Error_list):
+        return Error_list[-1]
+    before = Error_list[pos - 1]
+    after = Error_list[pos]
+    if (shift - before) > (after - shift):
+        return after
+    else:
+        return before
+
+def findAllExonCombinations(exon_sizes, size):
+    # Finds all exon combinations 
+    # and calculates Error for each combination
+    # Returns dictionary where keys are Error values
+    # and values are list of exon_combinations: 
+    #      [ [exon set 1], [exon set 2]... ]
+    perm_list = []
+    Error_list = []
+    
+    # Find all exon combinations
+    for i in range(len(exon_sizes)):
+        perm_list += [ list(x) for x in combinations(exon_sizes, i+1) ]
+    
+    # Find Error, i.e. the difference between peak size and sum of exon size
+    Error_list = [ sum(x)-size for x in perm_list ]
+    
+    # Make dictionary of Error: Exon combination
+    errorExonMap = {}
+    for i in range(len(Error_list)):
+        try:
+            errorExonMap[Error_list[i]] += [ perm_list[i] ]
+        except KeyError:
+            errorExonMap[Error_list[i]] = [ perm_list[i] ]
+    
+    return errorExonMap
+
+def SelectExonCombinations(errorExonMap, size):
+    # errorExonMap = { ErrorA = [ [exon set 1], [exon set 2]... ],
+    #                  ErrorB = [ [exon set 3], [exon set 4]... ] }
+    
+    # Find exon combination closest to peak_size closest to size,
+    # whether Error is positive or negative 
+    closest_Error = findClosestError(list(errorExonMap.keys()), size)
+    return { closest_Error: errorExonMap[closest_Error]}
+
+def processDF(processed_df, 
+              exon_df, 
+              sample_names,
+              shift,
+              function):
+    """
+    exon df structure
+    Sample File Name    Exon    Exon Size
+    """
+
+    processed_df["Exon Combination"] = None
+    processed_df["Error"] = None
+    
+    # Loop through processed_df sample by sample
+    for i in sample_names:
+        dfSample = processed_df.loc[processed_df.iloc[:, 0] == i, :]
+        
+        # Get all possible exon sizes for each sample
+        dfExonSample = exon_df.loc[exon_df.iloc[:, 0] == i, :]
+        exon_sizes = list(dfExonSample["Exon Size"])
+        
+        # Assign Error, exon combinations to each peak in sample 
+        for index, row in dfSample.iterrows():
+            # Get exon combination with error closest to zero
+            peak_size = dfSample.loc[index, "Size"]
+            errorExonMap = findAllExonCombinations(exon_sizes, peak_size - shift) 
+            out = SelectExonCombinations(errorExonMap, 0) 
+            # Assign exon combinations
+            for key, value in out.items():
+                try:
+                    processed_df.at[index, "Exon Combination"] += value
+                except TypeError:
+                    processed_df.at[index, "Exon Combination"] = value
+                    processed_df.at[index, "Error"] = round(key, 2)  
+                    
+    if function == "findLowestError":
+        return sum(processed_df["Error"])
+    
+    elif function == "AssignExonCombinations":
+        return processed_df
+
+def drawErrorLandscape(processed_df, 
+                       exon_df, 
+                       sample_names,
+                       shift_start, shift_end, shift_step):
+    # Create new df
+    Error_dict = {}
+    
+    # Initialize parameters
+    count = 0
+    total_iterations = (shift_end - shift_start)/shift_step
+    
+    # Add Shift, Error to Error_dict
+    for shift in arange(shift_start, shift_end, shift_step):
+        Error = processDF(processed_df, 
+                          exon_df, 
+                          sample_names,
+                          shift,
+                          "findLowestError")
+        Error_dict[Error] = shift
+        count += 1
+        print(f"Iteration {count}/ {total_iterations} completed")
+        
+    return Error_dict
+
+def findShift(Error_dict):
+    Error_list = list(Error_dict.keys())
+    Error_near_zero = findClosestError(Error_list, 0)
+    shift = Error_dict[Error_near_zero]
+    return shift
+
+def translateNestedList(exonSizeItem, dictExon):
+    for i, elem in enumerate(exonSizeItem):
+        if isinstance(elem, int):
+            exonSizeItem[i] = dictExon[elem][0]
+        else:
+            exonSizeItem[i] = translateNestedList(elem, dictExon)
+    return exonSizeItem
+
+
+def translateSizeToExon(exon_processed_df, exon_df, sample_names): 
+    exon_processed_df["Exon ID"] = None
+    
+    # Process sample by sample
+    for i in sample_names:
+        dfSample = exon_processed_df.loc[exon_processed_df.iloc[:, 0] == i, :]
+        dfExon = exon_df.loc[exon_df.iloc[:, 0] == i, :]
+
+        # Create hashmap of {size : exon}
+        dictExon = {}
+        for index, row in dfExon.iterrows():
+            try: 
+                dictExon[ dfExon.loc[index, "Exon Size"] ] += \
+                    [dfExon.loc[index, "Exon"]]
+            except KeyError:
+                dictExon[ dfExon.loc[index, "Exon Size"] ] = \
+                    [dfExon.loc[index, "Exon"]]
+
+        # Translate exon size to exon ID
+        for index, row in dfSample.iterrows():
+            exonSizeItem = dfSample.loc[index, "Exon Combination"]
+            exonSizeItem = deepcopy(exonSizeItem)
+            exon_processed_df.at[index, "Exon ID"] = translateNestedList(exonSizeItem, 
+                                                                         dictExon)
+    
+    # Rearrange columns
+    exon_processed_df = exon_processed_df[['Sample File Name', 
+                                           'Size', 
+                                           'Height', 
+                                           'Area', 
+                                           'Percentage',
+                                           'Error',
+                                           'Exon Combination', 
+                                           'Exon ID']]
+    return exon_processed_df
+
 def init_logging(log_filename):
     '''If the log_filename is defined, then
     initialise the logging facility, and write log statement
@@ -488,6 +664,9 @@ def main():
                                   shift, 
                                   "AssignExonCombinations")
     
+    # Translate numeric exon combinations to exon ID combinations
+    exon_processed_df = translateSizeToExon(exon_processed_df, exon_df, sample_names)
+    
     # Save processed_df to csv
     exon_processed_df.to_csv(f"{outdir}/{prefix}_AssignedExons.csv", 
                              index = False)
@@ -500,159 +679,3 @@ def main():
 # If this script is run from the command line then call the main function.
 if __name__ == '__main__':
     main()
-
-##### Development for isoform assignment to peaks
-# Note all sizes are in base pair (bp)
-# Log shift and command inputs
-# Plot error-shift line graph as visual quality control
-# Position of df is important: pos 1 is "Sample File Name"
-# Need to read exon_df
-
-from itertools import combinations
-from bisect import bisect_left
-from numpy import arange
-
-def findClosestError(Error_list, shift):
-    Error_list = sorted(Error_list)
-    pos = bisect_left(Error_list, shift)
-    if pos == 0:
-        return Error_list[0]
-    if pos == len(Error_list):
-        return Error_list[-1]
-    before = Error_list[pos - 1]
-    after = Error_list[pos]
-    if (shift - before) > (after - shift):
-        return after
-    else:
-        return before
-
-def findAllExonCombinations(exon_sizes, size):
-    # Finds all exon combinations 
-    # and calculates Error for each combination
-    # Returns dictionary where keys are Error values
-    # and values are list of exon_combinations: 
-    #      [ [exon set 1], [exon set 2]... ]
-    perm_list = []
-    Error_list = []
-    
-    # Find all exon combinations
-    for i in range(len(exon_sizes)):
-        perm_list += [ list(x) for x in combinations(exon_sizes, i+1) ]
-    
-    # Find Error, i.e. the difference between peak size and sum of exon size
-    Error_list = [ sum(x)-size for x in perm_list ]
-    
-    # Make dictionary of Error: Exon combination
-    errorExonMap = {}
-    for i in range(len(Error_list)):
-        try:
-            errorExonMap[Error_list[i]] += [ perm_list[i] ]
-        except KeyError:
-            errorExonMap[Error_list[i]] = [ perm_list[i] ]
-    
-    return errorExonMap
-
-def SelectExonCombinations(errorExonMap, size):
-    # errorExonMap = { ErrorA = [ [exon set 1], [exon set 2]... ],
-    #                  ErrorB = [ [exon set 3], [exon set 4]... ] }
-    
-    # Find exon combination closest to peak_size closest to size,
-    # whether Error is positive or negative 
-    closest_Error = findClosestError(list(errorExonMap.keys()), size)
-    return { closest_Error: errorExonMap[closest_Error]}
-
-def processDF(processed_df, 
-              exon_df, 
-              sample_names,
-              shift,
-              function):
-    """
-    exon df structure
-    Sample File Name    Exon    Exon Size
-    """
-
-    processed_df["Exon Combination"] = None
-    processed_df["Error"] = None
-    
-    # Loop through processed_df sample by sample
-    for i in sample_names:
-        dfSample = processed_df.loc[processed_df.iloc[:, 0] == i, :]
-        
-        # Get all possible exon sizes for each sample
-        dfExonSample = exon_df.loc[exon_df.iloc[:, 0] == i, :]
-        exon_sizes = list(dfExonSample["Exon Size"])
-        
-        # Assign Error, exon combinations to each peak in sample 
-        for index, row in dfSample.iterrows():
-            # Get exon combination with error closest to zero
-            peak_size = dfSample.loc[index, "Size"]
-            errorExonMap = findAllExonCombinations(exon_sizes, peak_size + shift) 
-            out = SelectExonCombinations(errorExonMap, 0) 
-            # Assign exon combinations
-            for key, value in out.items():
-                try:
-                    processed_df.at[index, "Exon Combination"] += [value]
-                except TypeError:
-                    processed_df.at[index, "Exon Combination"] = [value]
-                    processed_df.at[index, "Error"] = round(key, 2)  
-                    
-    if function == "findLowestError":
-        return sum(processed_df["Error"])
-    
-    elif function == "AssignExonCombinations":
-        return processed_df
-
-def drawErrorLandscape(processed_df, 
-                       exon_df, 
-                       sample_names,
-                       shift_start, shift_end, shift_step):
-    # Create new df
-    Error_dict = {}
-    
-    # Initialize parameters
-    count = 0
-    total_iterations = (shift_end - shift_start)/shift_step
-    
-    # Add Shift, Error to Error_dict
-    for shift in arange(shift_start, shift_end, shift_step):
-        Error = processDF(processed_df, 
-                          exon_df, 
-                          sample_names,
-                          shift,
-                          "findLowestError")
-        Error_dict[Error] = shift
-        count += 1
-        print(f"Iteration {count}/ {total_iterations} completed")
-        
-    return Error_dict
-
-def findShift(Error_dict):
-    Error_list = list(Error_dict.keys())
-    Error_near_zero = findClosestError(Error_list, 0)
-    shift = Error_dict[Error_near_zero]
-    return shift
-
-def translateSizeToExon(processed_df, exon_df):
-    for index, row in processed_df.iterrows():
-        
-
-# TEST
-import pandas as pd
-exon_df = pd.read_csv("test_exon_input.csv")
-df = loadDF("input_basic_test.csv")
-processDF(processed_df, 
-              exon_df, 
-              sample_names,
-              shift,
-              "findLowestError")
-exon_processed_df1 = processDF(processed_df, 
-                                  exon_df, 
-                                  sample_names, 
-                                  -273, 
-                                  "AssignExonCombinations")
-    
-exon_processed_df2 = processDF(processed_df, 
-                                  exon_df, 
-                                  sample_names, 
-                                  0, 
-                                  "AssignExonCombinations")    
