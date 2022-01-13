@@ -6,6 +6,7 @@ Usage: python3 genescanner_test.py
 from genescanner import *
 from os import system
 from os import remove
+from os import path
 from glob import glob
 import sys
 
