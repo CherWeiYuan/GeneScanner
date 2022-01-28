@@ -22,11 +22,12 @@ or remove peaks is left to the user.
 """
 
 PROGRAM_NAME = "genescanner"
-PROGRAM_VERSION = "1.0.1"
+PROGRAM_VERSION = "1.0.2"
 
 EXIT_COLUMN_HEADER_ERROR = 1
 DIRECTORY_MISSING_ERROR = 2
 PERMISSION_ERROR = 3
+MISSING_EXON_INFO_ERROR = 4
 
 import sys
 from os import mkdir
@@ -50,11 +51,13 @@ def parse_args():
     """
     Parse command line arguments.
     """
-    description = "Reads the output of GeneScan in csv format, remove peaks with small area, and calculates, for each sample, the percentage of the total area that each peak covers."
+    description = "Reads the output of GeneScan from a SINGLE EXPERIMENT in csv format, remove peaks with small area, and calculates, for each sample, the percentage of the total area that each peak covers."
     epilog = "Example usage: genescanner \
-        --outdir mnt/c/mySamples/output \
-        --prefix mySamples \
-        /mnt/c/mySamples/mySamples.csv"
+        --exon_df /mnt/c/mydata/exons.csv \
+        --outdir /mnt/c/output_folder \
+        --prefix output \
+        --filter 1 \
+        /mnt/c/mydata/genescan.csv"
     parser = ArgumentParser(description=description,
                             epilog=epilog)
     parser.add_argument('input',
@@ -75,6 +78,15 @@ def parse_args():
     parser.add_argument('--version',
                         action='version',
                         version=str(PROGRAM_VERSION))
+    parser.add_argument('--resolveAmbiguousPeaks', 
+                        dest='resolve_peaks', 
+                        action='store_true',
+                        help = 'Keep highest of multiple peaks close to each other. "Closeness" is defined as peaks within --peak_gap base pair of each other. If an ambiguous cluster of peaks has more than --cluster_size peaks, they will not be resolved.)')
+    parser.add_argument('--not_resolveAmbiguousPeaks', 
+                        dest='resolve_peaks', 
+                        action='store_false',
+                        help = 'Do not clean peaks by only keeping the highest of closely clustered peaks.')
+    parser.set_defaults(resolve_peaks = False)
     parser.add_argument('--peak_gap',
                         type=float,
                         default = 1.7,
@@ -84,14 +96,17 @@ def parse_args():
                         default = 3,
                         help='DEFAULT = 3. The maximum number of peaks within peak_gap of each other that will be processed together. Only one peak with largest area will remain.')
     parser.add_argument('--filter',
-                        metavar='FILTER',
                         type=float,
                         default = 0.0,
                         help='DEFAULT = 0.0. Float. Remove all peaks with percentage area lower than filter. Percentage area refers to the area of the peak over the area of all peaks of the same sample.') 
+    parser.add_argument('--Error_filter',
+                        type=float,
+                        default = 15.0,
+                        help='DEFAULT = 15.0. Float. Output dataframe with Error equals or more than the specified value will be removed..') 
     parser.add_argument('--shift_range',
                         type=list,
-                        default=[-500, 500, 0.5],
-                        help='Range of Error landscape')
+                        default=[-50, 50, 0.25],
+                        help='DEFAULT = [-50, 50, 0.25]. Range of Error to consider. If the GeneScan results have drastic shift, consider using higher Error values.')
     return parser.parse_args()
 
 def exit_with_error(message, exit_status):
@@ -235,18 +250,7 @@ def findMountainRanges(df, sample_names, peak_gap):
             
 def cleanMountainRanges(df, mountain_ranges, cluster_size):
     """
-    Parameters
-    ----------
-    df : TYPE Pandas dataframe
-        DESCRIPTION. Dataframe of cleaned GeneScan datasheet.
-    clean_mountain_ranges : TYPE List
-        DESCRIPTION. A master list containing list of indexes of 
-                     continuous peaks within peak_gap of each other
-
-    Returns
-    -------
-    remove: TYPE List
-        DESCRIPTION. List of index to remove from df
+    Generates a list of row index to remove from dataframe
     """
     remove = []
     for mountains in mountain_ranges:
@@ -357,7 +361,7 @@ def AddPercentage(processed_df, sample_names):
     return df_out
 
 def filterAreaPercent(df_out, filter_threshold):
-    return df_out.query(f"Percentage >= {filter_threshold}").\
+    return df_out.query(f"Percentage > {filter_threshold}").\
         sort_values(by=['Sample File Name', 'Size'], ascending = True)
 
 def plot(df_before, df_after, prefix, outdir):
@@ -418,7 +422,6 @@ def findAllExonCombinations(exon_sizes, size):
     #      [ [exon set 1], [exon set 2]... ]
     perm_list = []
     Error_list = []
-    
     # Find all exon combinations
     for i in range(len(exon_sizes)):
         perm_list += [ list(x) for x in combinations(exon_sizes, i+1) ]
@@ -506,7 +509,7 @@ def drawErrorLandscape(processed_df,
                           "findLowestError")
         Error_dict[Error] = shift
         count += 1
-        print(f"Iteration {count}/ {total_iterations} completed")
+        #print(f"Iteration {count}/ {total_iterations} completed")
         
     return Error_dict
 
@@ -578,19 +581,23 @@ def init_logging(log_filename):
                             format='%(asctime)s %(levelname)s - %(message)s',
                             datefmt="%Y-%m-%dT%H:%M:%S%z",
                             force=True)
+        info(f'Programme name: {PROGRAM_NAME}')
+        info(f'Programme version: {PROGRAM_VERSION}')
         info('program started')
         info('command line: %s', ' '.join(sys.argv))
-
+        
 def main():
     # Get user-defined parameters
     args = parse_args()
     input_file = args.input
     prefix = args.prefix
     outdir = args.outdir
+    resolve_peaks = args.resolve_peaks
     peak_gap = args.peak_gap
     filter_threshold = args.filter
+    Error_filter = args.Error_filter
     cluster_size = args.cluster_size
-    exon_df = args.exon_dif
+    exon_df = args.exon_df
     shift_range = args.shift_range
     shift_start = shift_range[0]
     shift_end  = shift_range[1]
@@ -620,17 +627,28 @@ def main():
     
     # Load and clean input
     df = loadDf(input_file)
+    exon_df = pd.read_csv(exon_df)
     
     # Get all sample names
     sample_names = getSampleNames(df)
+    sample_names_exons = getSampleNames(exon_df)
     
-    # Find all peak clusters
-    # Peak clusters collectively form mountain ranges
-    mountain_ranges = findMountainRanges(df, sample_names, peak_gap)
+    # Check if sample name in df can be found in exon_df
+    for name in sample_names:
+        if name not in sample_names_exons:
+            exit_with_error(f"Sample {name} not found in exon dataframe. Please update exon dataframe accordingly.", 
+                            MISSING_EXON_INFO_ERROR)
     
-    # For every peak cluster of cluster_size, pick peak with largest area
-    remove = cleanMountainRanges(df, mountain_ranges, cluster_size)
-    processed_df = RemoveArtefacts(df, remove)
+    if resolve_peaks:
+        # Find all peak clusters
+        # Peak clusters collectively form mountain ranges
+        mountain_ranges = findMountainRanges(df, sample_names, peak_gap)
+        
+        # For every peak cluster of cluster_size, pick peak with largest area
+        remove = cleanMountainRanges(df, mountain_ranges, cluster_size)
+        processed_df = RemoveArtefacts(df, remove)
+    else:
+        processed_df = df
     
     # Calculate percentage area of each peak across total area of its sample
     processed_df = AddPercentage(processed_df, sample_names)
@@ -643,10 +661,11 @@ def main():
                         index = False)
 
     # Plot 
-    plot(labelArtefacts(df, remove), 
-         labelArtefacts(processed_df, []), 
-         prefix, 
-         outdir)
+    if resolve_peaks:
+        plot(labelArtefacts(df, remove), 
+             labelArtefacts(processed_df, []), 
+             prefix, 
+             outdir)
     
     # Get dict of shift against Error
     Error_dict = drawErrorLandscape(processed_df, 
@@ -656,6 +675,7 @@ def main():
     
     # Calculate shift
     shift = findShift(Error_dict)
+    info(f"Shift is {shift} bp")
     
     # Assign exon combinations to processed_df
     exon_processed_df = processDF(processed_df, 
@@ -667,8 +687,9 @@ def main():
     # Translate numeric exon combinations to exon ID combinations
     exon_processed_df = translateSizeToExon(exon_processed_df, exon_df, sample_names)
     
-    # Save processed_df to csv
-    exon_processed_df.to_csv(f"{outdir}/{prefix}_AssignedExons.csv", 
+    # Filter and output assigned exons df
+    exon_processed_df = exon_processed_df.query(f'Error <= {Error_filter} & Error >= {-Error_filter}')
+    exon_processed_df.to_csv(f"{outdir}/{prefix}_AssignedExons.csv",
                              index = False)
     
     # Inform completion
