@@ -41,6 +41,7 @@ from argparse import ArgumentParser
 import pandas as pd
 from itertools import chain
 from seaborn import FacetGrid
+from seaborn import scatterplot
 from matplotlib.pyplot import bar
 from itertools import combinations
 from bisect import bisect_left
@@ -101,12 +102,15 @@ def parse_args():
                         help='DEFAULT = 0.0. Float. Remove all peaks with percentage area lower than filter. Percentage area refers to the area of the peak over the area of all peaks of the same sample.') 
     parser.add_argument('--Error_filter',
                         type=float,
-                        default = 50,
-                        help='DEFAULT = 50.0. Float. Output dataframe with Error equals or more than the specified value will be removed.') 
+                        default = 15.0,
+                        help='DEFAULT = 15.0. Float. Output dataframe with Error equals or more than the specified value will be removed.') 
     parser.add_argument('--shift_range',
                         type=list,
                         default=[-50, 50, 0.25],
                         help='DEFAULT = [-50, 50, 0.25]. Range of Error to consider. If the GeneScan results have drastic shift, consider using higher Error values.')
+    parser.add_argument('--shift',
+                        default=False,
+                        help='Float. You can provide shift value if it is known.')
     return parser.parse_args()
 
 def exit_with_error(message, exit_status):
@@ -492,13 +496,15 @@ def processDF(processed_df,
 def drawErrorLandscape(processed_df, 
                        exon_df, 
                        sample_names,
-                       shift_start, shift_end, shift_step):
+                       shift_start, shift_end, shift_step,
+                       outdir, prefix):
     # Create new df
     Error_dict = {}
     
     # Initialize parameters
     count = 0
     total_iterations = (shift_end - shift_start)/shift_step
+    data = []
     
     # Add Shift, Error to Error_dict
     for shift in arange(shift_start, shift_end, shift_step):
@@ -509,8 +515,24 @@ def drawErrorLandscape(processed_df,
                           "findLowestError")
         Error_dict[Error] = shift
         count += 1
+        data.append([shift, Error])
         #print(f"Iteration {count}/ {total_iterations} completed")
-        
+    
+    # Create dataframe of shift against error
+    landscape_df = pd.DataFrame(data, columns = ['shift', 'Error'])
+    landscape_df.to_csv(f"{outdir}/{prefix}_error_landscape.csv", 
+    index = False)
+
+    # Plot error landscape
+    from matplotlib import rcParams
+    rcParams['figure.figsize'] = (20,15)
+    p = scatterplot(data = landscape_df, x = 'shift', y = 'Error')
+    p.grid()
+    p.set(xlabel = "Shift (bp)", ylabel = "Error")
+    p.set_xticks(range(shift_start, shift_end, 5))
+    fig = p.get_figure()
+    fig.savefig(f"{outdir}/{prefix}_error_landscape.png", transparent=False)
+
     return Error_dict
 
 def findShift(Error_dict):
@@ -602,6 +624,7 @@ def main():
     shift_start = shift_range[0]
     shift_end  = shift_range[1]
     shift_step = shift_range[2]
+    shift = args.shift
     
     # Ensure output file is not opened
     try:
@@ -666,16 +689,23 @@ def main():
              labelArtefacts(processed_df, []), 
              prefix, 
              outdir)
-    
-    # Get dict of shift against Error
-    Error_dict = drawErrorLandscape(processed_df, 
-                                  exon_df, 
-                                  sample_names,
-                                  shift_start, shift_end, shift_step)
-    
-    # Calculate shift
-    shift = findShift(Error_dict)
-    info(f"Shift is {shift} bp")
+
+    # If shift is provided, do not calculate shift
+    if shift:
+        shift = float(shift)
+        info(f"Shift is {shift} bp")
+
+    else:
+        # Get dict of shift against Error
+        Error_dict = drawErrorLandscape(processed_df, 
+                                    exon_df, 
+                                    sample_names,
+                                    shift_start, shift_end, shift_step,
+                                    outdir, prefix)
+
+        # Calculate shift
+        shift = findShift(Error_dict)
+        info(f"Shift is {shift} bp")
     
     # Assign exon combinations to processed_df
     exon_processed_df = processDF(processed_df, 
