@@ -101,8 +101,8 @@ def parse_args():
                         help='DEFAULT = 0.0. Float. Remove all peaks with percentage area lower than filter. Percentage area refers to the area of the peak over the area of all peaks of the same sample.') 
     parser.add_argument('--Error_filter',
                         type=float,
-                        default = 15.0,
-                        help='DEFAULT = 15.0. Float. Output dataframe with Error equals or more than the specified value will be removed..') 
+                        default = 50,
+                        help='DEFAULT = 50.0. Float. Output dataframe with Error equals or more than the specified value will be removed.') 
     parser.add_argument('--shift_range',
                         type=list,
                         default=[-50, 50, 0.25],
