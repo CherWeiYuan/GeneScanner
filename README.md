@@ -1,8 +1,10 @@
 # GeneScanner
 
+Automated data cleaning and exon assignment to GeneScan peaks.
+
 # Overview 
 
-GeneScanner reads a raw GeneScan datasheet, removes dirty peaks, calculates the percentage area of each peak among all peaks in the sample. Output a cleaned csv datasheet and plot of peaks before and after processing:
+GeneScanner reads a raw GeneScan datasheet, removes dirty peaks, calculates the percentage area of each peak among all peaks in the sample. Output a cleaned csv datasheet and plot of peaks before and after processing (see image below). The peaks are then assigned user-defined exons based on size (bp).
 
 ![alt text](https://github.com/CherWeiYuan/GeneScanner/blob/main/miscellaneous/sample_plot.png?raw=true)
 
