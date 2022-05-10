@@ -2,7 +2,7 @@
 Module      : Main
 Description : The main entry point for the program.
 Copyright   : (c) CHER_WEI_YUAN, 29DEC2021 
-License     : MIT_LICENSE 
+License     : -
 Maintainer  : E0031403@U.NUS.EDU 
 Portability : POSIX
 This program reads the output of GeneScan in csv format, remove
